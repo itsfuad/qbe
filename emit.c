@@ -55,7 +55,34 @@ emitlnk(char *n, Lnk *l, int s, FILE *f)
 void
 emitfnlnk(char *n, Lnk *l, FILE *f)
 {
-	emitlnk(n, l, SecText, f);
+	char sec[320];
+	Lnk ll;
+
+	/* Emit per-function .text sections so that
+	 * --gc-sections (ELF) or /OPT:REF (PE) can
+	 * strip unused functions.
+	 * - ELF:  .section .text.name,"ax",@progbits
+	 * - COFF: .section .text$name,"xr"
+	 * - Mach-O: not needed (.subsections_via_symbols
+	 *   + -dead_strip works at symbol level)
+	 */
+	if (!l->sec && !l->thread && !T.apple && n[0] != '"') {
+		ll = *l;
+		if (T.windows) {
+			snprintf(sec, sizeof sec,
+				".text$%s%s", T.assym, n);
+			ll.sec = sec;
+			ll.secf = "\"xr\"";
+		} else {
+			snprintf(sec, sizeof sec,
+				".text.%s%s", T.assym, n);
+			ll.sec = sec;
+			ll.secf = "\"ax\",@progbits";
+		}
+		emitlnk(n, &ll, SecText, f);
+	} else {
+		emitlnk(n, l, SecText, f);
+	}
 }
 
 void
@@ -71,6 +98,8 @@ emitdat(Dat *d, FILE *f)
 		[DL] = {"\t.quad", -1L},
 	};
 	static int64_t zero;
+	static char datsec[320];
+	static Lnk datll;
 	char *p;
 
 	switch (d->type) {
@@ -89,7 +118,24 @@ emitdat(Dat *d, FILE *f)
 			fputc('\n', f);
 		}
 		else if (zero != -1) {
-			emitlnk(d->name, d->lnk, SecBss, f);
+			if (!d->lnk->sec && !d->lnk->thread
+			    && !T.apple && d->name[0] != '"') {
+				datll = *d->lnk;
+				if (T.windows) {
+					snprintf(datsec, sizeof datsec,
+						".bss$%s%s", T.assym, d->name);
+					datll.sec = datsec;
+					datll.secf = "\"w\"";
+				} else {
+					snprintf(datsec, sizeof datsec,
+						".bss.%s%s", T.assym, d->name);
+					datll.sec = datsec;
+					datll.secf = "\"aw\",@nobits";
+				}
+				emitlnk(d->name, &datll, SecBss, f);
+			} else {
+				emitlnk(d->name, d->lnk, SecBss, f);
+			}
 			fprintf(f, "\t.fill %"PRId64",1,0\n", zero);
 		}
 		break;
@@ -101,7 +147,24 @@ emitdat(Dat *d, FILE *f)
 		break;
 	default:
 		if (zero != -1) {
-			emitlnk(d->name, d->lnk, SecData, f);
+			if (!d->lnk->sec && !d->lnk->thread
+			    && !T.apple && d->name[0] != '"') {
+				datll = *d->lnk;
+				if (T.windows) {
+					snprintf(datsec, sizeof datsec,
+						".data$%s%s", T.assym, d->name);
+					datll.sec = datsec;
+					datll.secf = "\"wr\"";
+				} else {
+					snprintf(datsec, sizeof datsec,
+						".data.%s%s", T.assym, d->name);
+					datll.sec = datsec;
+					datll.secf = "\"aw\",@progbits";
+				}
+				emitlnk(d->name, &datll, SecData, f);
+			} else {
+				emitlnk(d->name, d->lnk, SecData, f);
+			}
 			if (zero > 0)
 				fprintf(f, "\t.fill %"PRId64",1,0\n", zero);
 			zero = -1;
